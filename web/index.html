@@ -1,4 +1,287 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>藏品来源与返还审查</title>
-<style>body{font:16px system-ui;max-width:980px;margin:32px auto;padding:0 16px}select,button{padding:8px;margin:4px}pre{background:#f4f4f4;padding:12px;white-space:pre-wrap}.panel{border:1px solid #bbb;padding:16px;border-radius:8px}</style></head>
-<body><h1>藏品来源与返还审查</h1><div class="panel"><select id="user"><option>staff</option><option>reviewer1</option><option>claimant1</option><option>public</option></select><button onclick="load()">查看当前角色可见藏品</button></div><pre id="out"></pre>
-<script>async function load(){const r=await fetch("/api/objects",{headers:{"X-User-Id":user.value}});out.textContent=JSON.stringify(await r.json(),null,2)}</script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>藏品来源与返还审查</title>
+<style>
+  body{font:15px system-ui;max-width:1100px;margin:24px auto;padding:0 16px;color:#222}
+  h1{font-size:22px}
+  h2{font-size:17px;margin:18px 0 8px;border-bottom:1px solid #ddd;padding-bottom:4px}
+  select,button,input[type=text]{padding:6px 10px;margin:3px;border:1px solid #bbb;border-radius:4px;background:#fff}
+  button{cursor:pointer}
+  button.primary{background:#2b6cb0;color:#fff;border-color:#2b6cb0}
+  button.danger{background:#c53030;color:#fff;border-color:#c53030}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .panel{border:1px solid #ccc;padding:14px;border-radius:8px;margin:10px 0;background:#fafafa}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .muted{color:#666;font-size:13px}
+  .tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;margin-right:4px}
+  .tag.draft{background:#edf2f7;color:#4a5568}
+  .tag.sealed{background:#c6f6d5;color:#22543d}
+  .tag.invalid{background:#fed7d7;color:#742a2a}
+  .tag.completed{background:#c6f6d5;color:#22543d}
+  .tag.failed{background:#fed7d7;color:#742a2a}
+  .tag.blocked{background:#feebc8;color:#7b341e}
+  .tag.in_progress{background:#bee3f8;color:#2a4365}
+  table{border-collapse:collapse;width:100%;margin:8px 0;font-size:14px}
+  th,td{border:1px solid #ddd;padding:6px 8px;text-align:left;vertical-align:top}
+  th{background:#f0f0f0}
+  pre{background:#f4f4f4;padding:10px;white-space:pre-wrap;font-size:13px;border-radius:4px;max-height:320px;overflow:auto}
+  .affected{background:#fff5f5;border-left:3px solid #c53030;padding:8px 12px;margin:6px 0;border-radius:0 4px 4px 0}
+  .step{font-size:13px;padding:2px 0}
+  .step.done{color:#2f855a}
+  .step.pending{color:#a0aec0}
+  .step.failed{color:#c53030}
+  .check{margin-right:12px}
+  #toast{position:fixed;top:16px;right:16px;padding:10px 16px;border-radius:6px;color:#fff;z-index:99;display:none}
+  #toast.ok{background:#2f855a}
+  #toast.err{background:#c53030}
+</style>
+</head>
+<body>
+<h1>博物馆藏品来源与返还审查</h1>
+<div class="panel row">
+  <label>身份：
+    <select id="user">
+      <option value="staff">staff（藏品研究员）</option>
+      <option value="reviewer1" selected>reviewer1（返还审查员）</option>
+      <option value="claimant1">claimant1（权利主张人）</option>
+      <option value="public">public（公众访客）</option>
+    </select>
+  </label>
+  <button onclick="loadObjects()">刷新藏品列表</button>
+  <span class="muted">演示身份通过 X-User-Id 传入</span>
+</div>
+<div id="toast"></div>
+
+<div class="panel">
+  <h2>藏品</h2>
+  <div id="objects"></div>
+</div>
+
+<div id="detail" style="display:none">
+  <div class="panel">
+    <h2 id="objTitle"></h2>
+    <div id="objMeta" class="muted"></div>
+    <h2>来源事件（公开）</h2>
+    <div id="events"></div>
+    <h2>证据</h2>
+    <div id="evidence"></div>
+  </div>
+
+  <div class="panel">
+    <h2>权利主张</h2>
+    <div id="claims"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let state = { objects: [], currentObject: null, currentClaim: null };
+
+function toast(msg, ok=true){
+  const t = $('toast'); t.textContent = msg; t.className = ok ? 'ok' : 'err';
+  t.style.display = 'block'; setTimeout(()=> t.style.display='none', 3500);
+}
+async function api(method, path, body){
+  const opt = { method, headers: { 'X-User-Id': $('user').value } };
+  if (body !== undefined){ opt.headers['Content-Type']='application/json'; opt.body = JSON.stringify(body); }
+  const r = await fetch(path, opt);
+  const data = await r.json().catch(()=> ({}));
+  if (!r.ok){
+    const e = data.error || {};
+    const err = new Error(e.message || ('HTTP '+r.status));
+    err.code = e.code; err.status = r.status; err.affected = e.affected || [];
+    throw err;
+  }
+  return data;
+}
+const tag = s => `<span class="tag ${s}">${s}</span>`;
+
+async function loadObjects(){
+  const data = await api('GET','/api/objects');
+  state.objects = data.items;
+  const el = $('objects');
+  if (!state.objects.length){ el.innerHTML = '<p class="muted">暂无藏品</p>'; return; }
+  el.innerHTML = '<table><tr><th>ID</th><th>库存号</th><th>名称</th><th>类型</th><th>版本</th><th>操作</th></tr>' +
+    state.objects.map(o => `<tr><td>${o.id}</td><td>${o.inventory_no}</td><td>${o.title}</td><td>${o.object_type}</td><td>${o.version}</td>
+    <td><button onclick="openObject(${o.id})">查看</button></td></tr>`).join('') + '</table>';
+}
+
+async function openObject(id){
+  state.currentObject = id; state.currentClaim = null;
+  $('detail').style.display = 'block';
+  const o = await api('GET', `/api/objects/${id}`);
+  $('objTitle').textContent = `${o.inventory_no} · ${o.title}`;
+  $('objMeta').textContent = `类型：${o.object_type}　版本：${o.version}　${o.current_holder ? '持有人：'+o.current_holder : ''}`;
+  const pubEvents = (o.events||[]).filter(e => e.visibility === 'public');
+  $('events').innerHTML = pubEvents.length ? '<table><tr><th>ID</th><th>类型</th><th>日期</th><th>地点</th><th>说明</th></tr>' +
+    pubEvents.map(e => `<tr><td>${e.id}</td><td>${e.event_type}</td><td>${e.date_start}${e.date_end?' ~ '+e.date_end:''}</td><td>${e.place}</td><td>${e.description}</td></tr>`).join('') + '</table>'
+    : '<p class="muted">暂无公开来源事件</p>';
+  const evd = [...(o.unlinked_evidence||[]), ...(o.events||[]).flatMap(e=>e.evidence||[])];
+  $('evidence').innerHTML = evd.length ? '<table><tr><th>ID</th><th>文件名</th><th>SHA-256</th><th>大小</th><th>可见性</th></tr>' +
+    evd.map(e => `<tr><td>${e.id}</td><td>${e.filename}</td><td class="muted">${e.sha256}</td><td>${e.size}</td><td>${e.visibility}</td></tr>`).join('') + '</table>'
+    : '<p class="muted">暂无证据</p>';
+  await loadClaims(o);
+}
+
+async function loadClaims(o){
+  const claims = o.claims || [];
+  const el = $('claims');
+  if (!claims.length){ el.innerHTML = '<p class="muted">暂无权利主张</p>'; return; }
+  el.innerHTML = claims.map(c => `
+    <div class="panel" style="background:#fff">
+      <div class="row"><strong>主张 #${c.id}</strong> ${tag(c.status)}
+        <span class="muted">主张人：${c.claimed_by}　期望：${c.desired_outcome}</span>
+        <button onclick="openClaim(${c.id})">审查依据包</button>
+      </div>
+      <div id="claim-${c.id}" style="display:none;margin-top:10px"></div>
+    </div>`).join('');
+}
+
+async function openClaim(claimId){
+  state.currentClaim = claimId;
+  const box = $(`claim-${claimId}`);
+  box.style.display = 'block';
+  box.innerHTML = '<p class="muted">加载中…</p>';
+  await Promise.all([loadPackages(claimId), loadJobs(claimId)]);
+}
+
+async function loadPackages(claimId){
+  const data = await api('GET', `/api/claims/${claimId}/packages`);
+  const el = $(`claim-${claimId}`);
+  const obj = await api('GET', `/api/objects/${state.currentObject}`);
+  const pubEvents = (obj.events||[]).filter(e => e.visibility === 'public');
+  const allEvidence = [...(obj.unlinked_evidence||[]), ...(obj.events||[]).flatMap(e=>e.evidence||[])];
+  let html = '<h2>审查依据包</h2>';
+  // 建包表单
+  html += `<div class="panel" style="background:#f7fafc">
+    <strong>新建依据包</strong><p class="muted">选取公开来源事件和内部证据组成依据包</p>
+    <div>` + pubEvents.map(e => `<label class="check"><input type="checkbox" class="ev-chk" value="${e.id}">事件#${e.id} ${e.event_type}（${e.date_start}）</label>`).join('') + `</div>
+    <div>` + allEvidence.map(e => `<label class="check"><input type="checkbox" class="evd-chk" value="${e.id}">证据#${e.id} ${e.filename}</label>`).join('') + `</div>
+    <div class="row" style="margin-top:8px"><button class="primary" onclick="createPackage(${claimId})">建包</button></div>
+  </div>`;
+  if (!data.items.length) html += '<p class="muted">暂无依据包</p>';
+  else html += data.items.map(p => `
+    <div class="panel" style="background:#fff">
+      <div class="row"><strong>包 #${p.id}</strong> ${tag(p.status)}
+        ${p.status==='sealed' ? (p.is_valid ? '<span class="tag sealed">有效</span>' : '<span class="tag invalid">已失效</span>') : ''}
+        <span class="muted">封存版本：${p.sealed_object_version ?? '—'}　证据摘要：${(p.sealed_evidence_digest||[]).length} 项</span>
+      </div>
+      <div class="muted">选事件：${p.selected_event_ids.join(', ')||'无'}　选证据：${p.selected_evidence_ids.join(', ')||'无'}</div>
+      ${p.status==='invalid' ? `<div class="affected"><strong>失效原因（受影响项）：</strong><ul>${(p.affected_items||[]).map(a=>`<li>[${a.type}${a.id?'#'+a.id:''}] ${a.message}</li>`).join('')}</ul></div>` : ''}
+      <div class="row" style="margin-top:6px">
+        ${p.status==='draft' ? `<button class="primary" onclick="sealPackage(${p.id})">封存</button>` : ''}
+        ${p.status==='invalid' ? `<button onclick="revalidate(${p.id})">复审（按当前藏品重建）</button>` : ''}
+        <button onclick="viewPackage(${p.id})">详情</button>
+      </div>
+    </div>`).join('');
+  // 流转区
+  html += `<h2>主张流转</h2>
+    <div class="panel" style="background:#fff">
+      <div class="row">
+        <label>目标阶段：<select id="tr-status-${claimId}">
+          <option value="under_review">under_review</option>
+          <option value="negotiating">negotiating</option>
+          <option value="resolved_return">resolved_return</option>
+          <option value="rejected">rejected</option>
+        </select></label>
+        <label>审查说明：<input type="text" id="tr-note-${claimId}" placeholder="至少 5 字" style="width:260px"></label>
+        <button class="primary" onclick="transition(${claimId})">执行流转</button>
+      </div>
+      <p class="muted">若该主张已有封存依据包，流转前会校验包是否仍有效；失效则挡住流转并列出受影响项。</p>
+    </div>`;
+  el.innerHTML = html;
+}
+
+async function createPackage(claimId){
+  const event_ids = [...document.querySelectorAll('.ev-chk:checked')].map(x=>+x.value);
+  const evidence_ids = [...document.querySelectorAll('.evd-chk:checked')].map(x=>+x.value);
+  try{
+    const p = await api('POST', `/api/claims/${claimId}/packages`, { event_ids, evidence_ids });
+    toast(`依据包 #${p.id} 已建（草稿）`);
+    await loadPackages(claimId);
+  }catch(e){ toast(e.message, false); }
+}
+
+async function sealPackage(pkgId){
+  try{
+    const job = await api('POST', `/api/packages/${pkgId}/seal`);
+    toast(`封存任务 #${job.id}：${job.status}`);
+    await refreshCurrent();
+  }catch(e){ toast(e.message + (e.code==='conflict'?'（先写入者已生效）':''), false); await refreshCurrent(); }
+}
+
+async function revalidate(pkgId){
+  try{
+    const p = await api('POST', `/api/packages/${pkgId}/revalidate`);
+    toast(`已复审并新建草稿包 #${p.id}`);
+    await refreshCurrent();
+  }catch(e){ toast(e.message, false); }
+}
+
+async function viewPackage(pkgId){
+  try{
+    const p = await api('GET', `/api/packages/${pkgId}`);
+    alert(JSON.stringify(p, null, 2));
+  }catch(e){ toast(e.message, false); }
+}
+
+async function transition(claimId){
+  const status = $(`tr-status-${claimId}`).value;
+  const note = $(`tr-note-${claimId}`).value;
+  try{
+    const job = await api('POST', `/api/claims/${claimId}/transition`, { status, note });
+    toast(`流转任务 #${job.id}：${job.status}`);
+    await refreshCurrent();
+  }catch(e){
+    let msg = e.message;
+    if (e.affected && e.affected.length){
+      msg += '\n受影响项：\n' + e.affected.map(a=>`[${a.type}${a.id?'#'+a.id:''}] ${a.message}`).join('\n');
+    }
+    toast(msg, false);
+    await refreshCurrent();
+  }
+}
+
+async function loadJobs(claimId){
+  const data = await api('GET', `/api/claims/${claimId}/jobs`);
+  let box = document.createElement('div');
+  box.innerHTML = '<h2>任务进度（失败保留 / 重试）</h2>';
+  if (!data.items.length){ box.innerHTML += '<p class="muted">暂无任务</p>'; }
+  else box.innerHTML += data.items.map(j => `
+    <div class="panel" style="background:#fff">
+      <div class="row"><strong>任务 #${j.id}</strong> ${tag(j.status)}
+        <span class="muted">类型：${j.job_type}　重试：${j.attempts}　更新：${j.updated_at}</span>
+        ${j.status!=='completed' ? `<button onclick="retryJob(${j.id})">重试（续做未完成部分）</button>` : ''}
+      </div>
+      <div>${(j.steps||[]).map(s=>`<div class="step ${s.status}">· ${s.name}：${s.status}</div>`).join('')}</div>
+      ${j.error ? `<div class="affected"><strong>${j.error.code}：</strong>${j.error.message}
+        ${j.error.affected && j.error.affected.length ? '<ul>'+j.error.affected.map(a=>`<li>[${a.type}${a.id?'#'+a.id:''}] ${a.message}</li>`).join('')+'</ul>' : ''}
+        <div class="muted">未完成项：${(j.error.unfinished||[]).join(', ')||'无'}</div></div>` : ''}
+      ${j.result ? `<pre>${JSON.stringify(j.result,null,2)}</pre>` : ''}
+    </div>`).join('');
+  const claimBox = $(`claim-${claimId}`);
+  const existing = claimBox.querySelector(':scope > div:last-child');
+  claimBox.appendChild(box);
+}
+
+async function retryJob(jobId){
+  try{
+    const j = await api('POST', `/api/jobs/${jobId}/retry`);
+    toast(`任务 #${j.id}：${j.status}`);
+    await refreshCurrent();
+  }catch(e){ toast(e.message, false); await refreshCurrent(); }
+}
+
+async function refreshCurrent(){
+  if (state.currentObject) await openObject(state.currentObject);
+  if (state.currentClaim) await openClaim(state.currentClaim);
+}
+
+$('user').addEventListener('change', loadObjects);
+loadObjects();
+</script>
+</body>
+</html>
