@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>返还审查工作台 · 依据包</title>
+<style>
+body{font:15px system-ui,sans-serif;max-width:1100px;margin:24px auto;padding:0 16px;color:#222}
+h1{font-size:22px}
+h2{font-size:17px;margin:20px 0 8px}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#f6f7f9;border:1px solid #d8dbe0;border-radius:8px;padding:12px}
+select,button,input,textarea{font:inherit;padding:6px 10px;border:1px solid #9aa0a8;border-radius:6px}
+button{cursor:pointer;background:#fff}
+button.primary{background:#234a7d;color:#fff;border-color:#234a7d}
+button.danger{background:#8a2b2b;color:#fff;border-color:#8a2b2b}
+pre{background:#f4f5f7;padding:10px;border-radius:8px;white-space:pre-wrap;word-break:break-all;font-size:13px}
+.card{border:1px solid #d8dbe0;border-radius:8px;padding:14px;margin:12px 0}
+.pkg-draft{border-left:5px solid #9aa0a8}
+.pkg-sealed{border-left:5px solid #2e7d32}
+.pkg-invalid{border-left:5px solid #c62828}
+.tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;color:#fff;margin-right:6px}
+.tag-draft{background:#777}.tag-sealed{background:#2e7d32}.tag-invalid{background:#c62828}
+.tag-done{background:#2e7d32}.tag-failed{background:#ef6c00}.tag-blocked{background:#c62828}.tag-pending{background:#777}
+.muted{color:#666;font-size:13px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+ul{margin:6px 0;padding-left:20px}
+#msg{margin:10px 0;white-space:pre-wrap}
+.err{color:#c62828}.ok{color:#2e7d32}
+a.nav{margin-left:auto}
+</style>
+</head>
+<body>
+<h1>返还审查工作台 · 审查依据包</h1>
+<div class="bar">
+  <label>审查员身份
+    <select id="user"><option>reviewer1</option><option>staff</option></select>
+  </label>
+  <label>藏品 ID <input id="objectId" value="1" style="width:70px"></label>
+  <button class="primary" onclick="loadAll()">载入藏品</button>
+  <a class="nav" href="/">← 返回公开入口</a>
+</div>
+<div id="msg"></div>
+
+<div class="card" id="objectPanel" hidden>
+  <h2 id="objectTitle"></h2>
+  <div class="muted" id="objectMeta"></div>
+  <div class="cols">
+    <div>
+      <h3>公开来源事件（可入包）</h3>
+      <div id="eventList"></div>
+      <h3>内部证据（可入包）</h3>
+      <div id="evidenceList"></div>
+      <h3>权利主张</h3>
+      <div id="claimList"></div>
+    </div>
+    <div>
+      <h2>审查依据包</h2>
+      <div class="row">
+        <button class="primary" onclick="createPackage()">用勾选条目建包</button>
+        <span class="muted">封存时记录藏品版本与证据 SHA-256 摘要</span>
+      </div>
+      <div id="packageList"></div>
+      <h2>流转作业（进度持久化，可续做）</h2>
+      <div id="jobList"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/review.js"></script>
+</body>
+</html>

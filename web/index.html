@@ -1,4 +1,35 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>藏品来源与返还审查</title>
-<style>body{font:16px system-ui;max-width:980px;margin:32px auto;padding:0 16px}select,button{padding:8px;margin:4px}pre{background:#f4f4f4;padding:12px;white-space:pre-wrap}.panel{border:1px solid #bbb;padding:16px;border-radius:8px}</style></head>
-<body><h1>藏品来源与返还审查</h1><div class="panel"><select id="user"><option>staff</option><option>reviewer1</option><option>claimant1</option><option>public</option></select><button onclick="load()">查看当前角色可见藏品</button></div><pre id="out"></pre>
-<script>async function load(){const r=await fetch("/api/objects",{headers:{"X-User-Id":user.value}});out.textContent=JSON.stringify(await r.json(),null,2)}</script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>藏品来源与返还审查</title>
+<style>
+body{font:15px system-ui,sans-serif;max-width:1000px;margin:24px auto;padding:0 16px;color:#222}
+h1{font-size:22px}
+.bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:#f6f7f9;border:1px solid #d8dbe0;border-radius:8px;padding:12px}
+select,button,input,textarea{font:inherit;padding:6px 10px;border:1px solid #9aa0a8;border-radius:6px}
+button{cursor:pointer;background:#fff}
+button.primary{background:#234a7d;color:#fff;border-color:#234a7d}
+a.nav{margin-left:auto}
+pre{background:#f4f5f7;padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-all}
+.card{border:1px solid #d8dbe0;border-radius:8px;padding:14px;margin:12px 0}
+.muted{color:#666;font-size:13px}
+</style>
+</head>
+<body>
+<h1>藏品来源与返还审查 · 公开入口</h1>
+<div class="bar">
+  <label>演示身份
+    <select id="user">
+      <option>staff</option><option>reviewer1</option><option>claimant1</option><option>public</option>
+    </select>
+  </label>
+  <button class="primary" onclick="loadObjects()">查看可见藏品</button>
+  <a class="nav" href="/review">审查员工作台 →</a>
+</div>
+<div id="list" class="card" hidden></div>
+<pre id="out" hidden></pre>
+<script src="/static/app.js"></script>
+</body>
+</html>
